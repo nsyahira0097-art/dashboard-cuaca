@@ -750,29 +750,57 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     features.map((f: any) => {
       const stateCode = f.id || '';
       const stateName = STATE_NAME_MAP[stateCode] || '';
+      const centroid = pathGen.centroid(f);
+      const hasCentroid = centroid && !isNaN(centroid[0]) && !isNaN(centroid[1]);
+      // Short label for display
+      const SHORT_LABEL: Record<string, string> = {
+        'KDH':'Kedah','KTN':'Kelantan','PRK':'Perak','PNG':'P. Pinang',
+        'KUL':'KL','NSN':'N. Sembilan','MLK':'Melaka','PLS':'Perlis',
+        'PHG':'Pahang','TRG':'Terengganu','JHR':'Johor','SGR':'Selangor',
+        'SBH':'Sabah','SWK':'Sarawak','LBN':'Labuan','PJY':'Putrajaya',
+      };
+      const label = SHORT_LABEL[stateCode] || stateCode;
       return (
-        <path key={stateCode} d={pathGen(f) as string} fill={getStateFill(stateCode)}
-          stroke={isDarkMode ? '#475569' : '#94a3b8'} strokeWidth={0.6}
-          className="cursor-pointer transition-colors duration-150"
-          onMouseEnter={(e: React.MouseEvent) => {
-            setHoveredState(stateCode);
-            if (svgContainerRef.current) {
-              const rect = svgContainerRef.current.getBoundingClientRect();
-              setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-            }
-          }}
-          onMouseMove={(e: React.MouseEvent) => {
-            if (svgContainerRef.current) {
-              const rect = svgContainerRef.current.getBoundingClientRect();
-              setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-            }
-          }}
-          onMouseLeave={() => { setHoveredState(null); setTooltipPos(null); }}
-          onClick={() => {
-            if (!stateName) return;
-            setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
-          }}
-        />
+        <g key={stateCode}>
+          <path d={pathGen(f) as string} fill={getStateFill(stateCode)}
+            stroke={isDarkMode ? '#475569' : '#94a3b8'} strokeWidth={0.6}
+            className="cursor-pointer transition-colors duration-150"
+            onMouseEnter={(e: React.MouseEvent) => {
+              setHoveredState(stateCode);
+              if (svgContainerRef.current) {
+                const rect = svgContainerRef.current.getBoundingClientRect();
+                setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              }
+            }}
+            onMouseMove={(e: React.MouseEvent) => {
+              if (svgContainerRef.current) {
+                const rect = svgContainerRef.current.getBoundingClientRect();
+                setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              }
+            }}
+            onMouseLeave={() => { setHoveredState(null); setTooltipPos(null); }}
+            onClick={() => {
+              if (!stateName) return;
+              setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
+            }}
+          />
+          {hasCentroid && (
+            <text
+              x={centroid[0]} y={centroid[1]}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={stateCode === 'KUL' || stateCode === 'PJY' || stateCode === 'LBN' ? 4 : stateCode === 'MLK' || stateCode === 'PLS' ? 6 : 8}
+              fontWeight="600"
+              fill={isDarkMode ? '#e2e8f0' : '#1e293b'}
+              stroke={isDarkMode ? '#0f172a' : '#ffffff'}
+              strokeWidth={2}
+              paintOrder="stroke"
+              pointerEvents="none"
+              style={{ userSelect: 'none' }}
+            >
+              {label}
+            </text>
+          )}
+        </g>
       );
     });
 
