@@ -1,0 +1,6 @@
+{
+  "name": "Dashboard Cuaca Malaysia",
+  "description": "Widget dashboard cuaca interaktif untuk memaparkan data suhu, kelembapan, angin dan hujan mengikut negeri, daerah, dan tarikh daripada Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
