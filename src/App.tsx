@@ -18,9 +18,8 @@ import {
 import { getWeatherData, isSupabaseConnected } from './supabaseClient';
 import { MALAYSIA_STATES, DataCuacaHarian, NEGERI_DAERAH } from './mockData';
 import { geoMercator, geoPath } from "d3-geo";
-import { feature } from "topojson-client";
-import { malaysiaTopo } from "./malaysia-topo";
-import malaysiaStateGeoJSON from './malaysia.state.geojson';
+import malaysiaStateGeoJSONRaw from './malaysia-state.geojson?raw';
+const malaysiaStateGeoJSON = JSON.parse(malaysiaStateGeoJSONRaw);
 
 function getTemperatureBgClass(temp: number, isDarkMode: boolean = true) {
   if (isDarkMode) {
@@ -460,6 +459,28 @@ export default function App() {
                     <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={`w-full text-xs p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 transition outline-none ${isDarkMode ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`} />
                   </div>
                 </div>
+                {/* Quick date range buttons */}
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  {[{ label: '7 Hari Terakhir', days: 7 }, { label: '30 Hari Terakhir', days: 30 }].map(({ label, days }) => {
+                    const end = endDate || new Date().toISOString().split('T')[0];
+                    const start = new Date(new Date(end).setDate(new Date(end).getDate() - days + 1)).toISOString().split('T')[0];
+                    const isActive = startDate === start && endDate === end;
+                    return (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => { setStartDate(start); setEndDate(end); }}
+                        className={`text-[10px] font-semibold px-2 py-2 rounded-lg border transition-all cursor-pointer ${
+                          isActive
+                            ? isDarkMode ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-cyan-100 text-cyan-800 border-cyan-300'
+                            : isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700 hover:text-white' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Search */}
@@ -538,10 +559,11 @@ export default function App() {
                 </div>
               </div>
 
-              <div ref={mapContainerRef} className={`relative rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ${isDarkMode ? "border-slate-800/80 bg-teal-950/5" : "border-slate-200 bg-teal-50/5"}`} style={{ height: '560px' }}>
+              <div ref={mapContainerRef} className={`relative rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ${isDarkMode ? "border-slate-800/80 bg-teal-950/5" : "border-slate-200 bg-teal-50/5"}`} style={{ height: '500px' }}>
                 <MalaysiaSVGMap 
                   isDarkMode={isDarkMode} selectedStates={selectedStates} setSelectedStates={setSelectedStates}
                   districtAverages={districtAverages} STATE_CODE_TO_NAME={STATE_CODE_TO_NAME}
+                  filteredData={filteredData} endDate={endDate}
                 />
               </div>
             </div>
@@ -681,8 +703,10 @@ export default function App() {
 }
 
 // Komponen Peta D3 SVG
-function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, districtAverages, STATE_CODE_TO_NAME }: any) {
+function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, districtAverages, STATE_CODE_TO_NAME, filteredData, endDate }: any) {
   const [hoveredState, setHoveredState] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const svgContainerRef = useRef<HTMLDivElement>(null);
 
   const stateFeatures = useMemo(() => (malaysiaStateGeoJSON as any).features || [], []);
   const peninsularFeatures = stateFeatures.filter((f: any) => ['KDH','KTN','PRK','PNG','KUL','NSN','MLK','PLS','PHG','TRG','JHR','SGR','PJY'].includes(f.id));
@@ -710,43 +734,168 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     return isDarkMode ? '#1e293b' : '#e2e8f0';
   };
 
-  const renderMap = (features: any[], width: number, height: number) => {
-    if (features.length === 0) return null;
-    const projection = geoMercator().fitSize([width, height], { type: 'FeatureCollection', features });
-    const pathGen = geoPath().projection(projection);
-    
-    return features.map((f: any) => {
+  // Peninsular: ~5.5° wide x 9.5° tall  → portrait, pad to 260×460
+  // East Malaysia: ~10° wide x 6.5° tall → landscape, pad to 460×300
+  const PAD = 12;
+  const peninsularProjection = useMemo(() =>
+    geoMercator().fitExtent([[PAD,PAD],[260-PAD,460-PAD]], { type:'FeatureCollection', features: peninsularFeatures }),
+  [peninsularFeatures]);
+  const eastProjection = useMemo(() =>
+    geoMercator().fitExtent([[PAD,PAD],[460-PAD,300-PAD]], { type:'FeatureCollection', features: eastFeatures }),
+  [eastFeatures]);
+  const peninsularPath = useMemo(() => geoPath().projection(peninsularProjection), [peninsularProjection]);
+  const eastPath       = useMemo(() => geoPath().projection(eastProjection),       [eastProjection]);
+
+  const renderFeatures = (features: any[], pathGen: any) =>
+    features.map((f: any) => {
       const stateCode = f.id || '';
       const stateName = STATE_NAME_MAP[stateCode] || '';
+      const centroid = pathGen.centroid(f);
+      const hasCentroid = centroid && !isNaN(centroid[0]) && !isNaN(centroid[1]);
+      // Short label for display
+      const SHORT_LABEL: Record<string, string> = {
+        'KDH':'Kedah','KTN':'Kelantan','PRK':'Perak','PNG':'P. Pinang',
+        'KUL':'KL','NSN':'N. Sembilan','MLK':'Melaka','PLS':'Perlis',
+        'PHG':'Pahang','TRG':'Terengganu','JHR':'Johor','SGR':'Selangor',
+        'SBH':'Sabah','SWK':'Sarawak','LBN':'Labuan','PJY':'Putrajaya',
+      };
+      const label = SHORT_LABEL[stateCode] || stateCode;
       return (
-        <path key={stateCode} d={pathGen(f) as string} fill={getStateFill(stateCode)}
-          stroke={isDarkMode ? '#334155' : '#94a3b8'} strokeWidth={0.8}
-          className="cursor-pointer transition-all duration-150"
-          onMouseEnter={() => setHoveredState(stateCode)}
-          onMouseLeave={() => setHoveredState(null)}
-          onClick={() => {
-            if (!stateName) return;
-            setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
-          }}
-        />
+        <g key={stateCode}>
+          <path d={pathGen(f) as string} fill={getStateFill(stateCode)}
+            stroke={isDarkMode ? '#475569' : '#94a3b8'} strokeWidth={0.6}
+            className="cursor-pointer transition-colors duration-150"
+            onMouseEnter={(e: React.MouseEvent) => {
+              setHoveredState(stateCode);
+              if (svgContainerRef.current) {
+                const rect = svgContainerRef.current.getBoundingClientRect();
+                setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              }
+            }}
+            onMouseMove={(e: React.MouseEvent) => {
+              if (svgContainerRef.current) {
+                const rect = svgContainerRef.current.getBoundingClientRect();
+                setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+              }
+            }}
+            onMouseLeave={() => { setHoveredState(null); setTooltipPos(null); }}
+            onClick={() => {
+              if (!stateName) return;
+              setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
+            }}
+          />
+          {hasCentroid && (
+            <text
+              x={centroid[0]} y={centroid[1]}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={stateCode === 'KUL' || stateCode === 'PJY' || stateCode === 'LBN' ? 4 : stateCode === 'MLK' || stateCode === 'PLS' ? 6 : 8}
+              fontWeight="600"
+              fill={isDarkMode ? '#e2e8f0' : '#1e293b'}
+              stroke={isDarkMode ? '#0f172a' : '#ffffff'}
+              strokeWidth={2}
+              paintOrder="stroke"
+              pointerEvents="none"
+              style={{ userSelect: 'none' }}
+            >
+              {label}
+            </text>
+          )}
+        </g>
       );
     });
-  };
+
+  // Build tooltip data for hovered state
+  const hoveredStateName = hoveredState ? STATE_NAME_MAP[hoveredState] : null;
+  const hoveredStateData = useMemo(() => {
+    if (!hoveredStateName || !filteredData?.length) return null;
+    const stateRecords = filteredData.filter((d: any) => d.negeri === hoveredStateName);
+    if (!stateRecords.length) return null;
+    // Get latest date records
+    const latest = stateRecords.reduce((a: any, b: any) => a.tarikh > b.tarikh ? a : b);
+    const sameDay = stateRecords.filter((d: any) => d.tarikh === latest.tarikh);
+    const avg = (key: string) => {
+      const vals = sameDay.map((d: any) => d[key]).filter((v: any) => v !== null && v !== undefined);
+      if (!vals.length) return null;
+      return parseFloat((vals.reduce((a: number, b: number) => a + b, 0) / vals.length).toFixed(1));
+    };
+    return {
+      negeri: hoveredStateName,
+      tarikh: latest.tarikh,
+      suhu_maksimum: avg('suhu_maksimum'),
+      suhu_minimum: avg('suhu_minimum'),
+      kelembapan: avg('kelembapan'),
+      taburan_hujan: avg('taburan_hujan'),
+      kelajuan_angin: avg('kelajuan_angin'),
+      kelembapan_tanah_permukaan: avg('kelembapan_tanah_permukaan'),
+    };
+  }, [hoveredStateName, filteredData]);
 
   return (
-    <div className="w-full h-full flex flex-col pt-4">
-      <div className="flex flex-1 gap-2 px-2 pb-2">
-        <div className="flex-1 relative">
-          <svg width="100%" height="100%" viewBox="0 0 380 460" preserveAspectRatio="xMidYMid meet">
-            {renderMap(peninsularFeatures, 380, 460)}
-          </svg>
-        </div>
-        <div className="w-[45%] relative">
-          <svg width="100%" height="100%" viewBox="0 0 420 300" preserveAspectRatio="xMidYMid meet">
-            {renderMap(eastFeatures, 420, 300)}
-          </svg>
-        </div>
+    <div ref={svgContainerRef} className="w-full h-full flex flex-row gap-2 p-2 items-stretch relative">
+      {/* Semenanjung — portrait 260×460 viewBox */}
+      <div className="flex items-center justify-center" style={{ width: '42%' }}>
+        <svg viewBox="0 0 260 460" style={{ width: '100%', height: '100%', maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
+          {renderFeatures(peninsularFeatures, peninsularPath)}
+        </svg>
       </div>
+      {/* Malaysia Timur — landscape 460×300 viewBox */}
+      <div className="flex flex-col items-center justify-center gap-1" style={{ width: '58%' }}>
+        <svg viewBox="0 0 460 300" style={{ width: '100%', maxHeight: '70%' }} preserveAspectRatio="xMidYMid meet">
+          {renderFeatures(eastFeatures, eastPath)}
+        </svg>
+        <span className={`text-[9px] font-semibold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Sabah &amp; Sarawak</span>
+      </div>
+
+      {/* Hover Tooltip */}
+      {hoveredStateData && tooltipPos && (
+        <div
+          className={`absolute z-50 pointer-events-none rounded-xl border shadow-2xl p-3 min-w-[180px] text-xs transition-none ${
+            isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+          }`}
+          style={{
+            left: tooltipPos.x + 14,
+            top: tooltipPos.y - 10,
+            transform: tooltipPos.x > 350 ? 'translateX(-110%)' : undefined,
+          }}
+        >
+          {/* Header */}
+          <div className={`font-extrabold text-[11px] uppercase tracking-wide mb-2 pb-1.5 border-b ${
+            isDarkMode ? 'text-cyan-400 border-slate-700' : 'text-cyan-700 border-slate-200'
+          }`}>
+            🗺️ {hoveredStateData.negeri}
+          </div>
+          <div className={`text-[10px] mb-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Tarikh: <span className={`font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{hoveredStateData.tarikh}</span>
+          </div>
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-rose-950/40' : 'bg-rose-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>Suhu Maks</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-rose-300' : 'text-rose-700'}`}>{hoveredStateData.suhu_maksimum ?? '–'}°C</div>
+            </div>
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-sky-950/40' : 'bg-sky-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>Suhu Min</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-sky-300' : 'text-sky-700'}`}>{hoveredStateData.suhu_minimum ?? '–'}°C</div>
+            </div>
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-teal-950/40' : 'bg-teal-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-teal-400' : 'text-teal-600'}`}>Kelembapan</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-teal-300' : 'text-teal-700'}`}>{hoveredStateData.kelembapan ?? '–'}%</div>
+            </div>
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-blue-950/40' : 'bg-blue-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Hujan</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>{hoveredStateData.taburan_hujan ?? '–'} mm</div>
+            </div>
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-purple-950/40' : 'bg-purple-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`}>Kelajuan Angin</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-purple-300' : 'text-purple-700'}`}>{hoveredStateData.kelajuan_angin ?? '–'} m/s</div>
+            </div>
+            <div className={`rounded-lg p-1.5 ${isDarkMode ? 'bg-emerald-950/40' : 'bg-emerald-50'}`}>
+              <div className={`text-[9px] uppercase font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>Humid Tanah</div>
+              <div className={`font-black text-sm ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>{hoveredStateData.kelembapan_tanah_permukaan ?? '–'}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
