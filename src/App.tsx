@@ -18,9 +18,8 @@ import {
 import { getWeatherData, isSupabaseConnected } from './supabaseClient';
 import { MALAYSIA_STATES, DataCuacaHarian, NEGERI_DAERAH } from './mockData';
 import { geoMercator, geoPath } from "d3-geo";
-import { feature } from "topojson-client";
-import { malaysiaTopo } from "./malaysia-topo";
-import malaysiaStateGeoJSON from './malaysia.state.geojson';
+import malaysiaStateGeoJSONRaw from './malaysia-state.geojson?raw';
+const malaysiaStateGeoJSON = JSON.parse(malaysiaStateGeoJSONRaw);
 
 function getTemperatureBgClass(temp: number, isDarkMode: boolean = true) {
   if (isDarkMode) {
@@ -538,7 +537,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div ref={mapContainerRef} className={`relative rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ${isDarkMode ? "border-slate-800/80 bg-teal-950/5" : "border-slate-200 bg-teal-50/5"}`} style={{ height: '560px' }}>
+              <div ref={mapContainerRef} className={`relative rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ${isDarkMode ? "border-slate-800/80 bg-teal-950/5" : "border-slate-200 bg-teal-50/5"}`} style={{ height: '500px' }}>
                 <MalaysiaSVGMap 
                   isDarkMode={isDarkMode} selectedStates={selectedStates} setSelectedStates={setSelectedStates}
                   districtAverages={districtAverages} STATE_CODE_TO_NAME={STATE_CODE_TO_NAME}
@@ -710,18 +709,26 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     return isDarkMode ? '#1e293b' : '#e2e8f0';
   };
 
-  const renderMap = (features: any[], width: number, height: number) => {
-    if (features.length === 0) return null;
-    const projection = geoMercator().fitSize([width, height], { type: 'FeatureCollection', features });
-    const pathGen = geoPath().projection(projection);
-    
-    return features.map((f: any) => {
+  // Peninsular: ~5.5° wide x 9.5° tall  → portrait, pad to 260×460
+  // East Malaysia: ~10° wide x 6.5° tall → landscape, pad to 460×300
+  const PAD = 12;
+  const peninsularProjection = useMemo(() =>
+    geoMercator().fitExtent([[PAD,PAD],[260-PAD,460-PAD]], { type:'FeatureCollection', features: peninsularFeatures }),
+  [peninsularFeatures]);
+  const eastProjection = useMemo(() =>
+    geoMercator().fitExtent([[PAD,PAD],[460-PAD,300-PAD]], { type:'FeatureCollection', features: eastFeatures }),
+  [eastFeatures]);
+  const peninsularPath = useMemo(() => geoPath().projection(peninsularProjection), [peninsularProjection]);
+  const eastPath       = useMemo(() => geoPath().projection(eastProjection),       [eastProjection]);
+
+  const renderFeatures = (features: any[], pathGen: any) =>
+    features.map((f: any) => {
       const stateCode = f.id || '';
       const stateName = STATE_NAME_MAP[stateCode] || '';
       return (
         <path key={stateCode} d={pathGen(f) as string} fill={getStateFill(stateCode)}
-          stroke={isDarkMode ? '#334155' : '#94a3b8'} strokeWidth={0.8}
-          className="cursor-pointer transition-all duration-150"
+          stroke={isDarkMode ? '#475569' : '#94a3b8'} strokeWidth={0.6}
+          className="cursor-pointer transition-colors duration-150"
           onMouseEnter={() => setHoveredState(stateCode)}
           onMouseLeave={() => setHoveredState(null)}
           onClick={() => {
@@ -731,21 +738,21 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
         />
       );
     });
-  };
 
   return (
-    <div className="w-full h-full flex flex-col pt-4">
-      <div className="flex flex-1 gap-2 px-2 pb-2">
-        <div className="flex-1 relative">
-          <svg width="100%" height="100%" viewBox="0 0 380 460" preserveAspectRatio="xMidYMid meet">
-            {renderMap(peninsularFeatures, 380, 460)}
-          </svg>
-        </div>
-        <div className="w-[45%] relative">
-          <svg width="100%" height="100%" viewBox="0 0 420 300" preserveAspectRatio="xMidYMid meet">
-            {renderMap(eastFeatures, 420, 300)}
-          </svg>
-        </div>
+    <div className="w-full h-full flex flex-row gap-2 p-2 items-stretch">
+      {/* Semenanjung — portrait 260×460 viewBox */}
+      <div className="flex items-center justify-center" style={{ width: '42%' }}>
+        <svg viewBox="0 0 260 460" style={{ width: '100%', height: '100%', maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
+          {renderFeatures(peninsularFeatures, peninsularPath)}
+        </svg>
+      </div>
+      {/* Malaysia Timur — landscape 460×300 viewBox */}
+      <div className="flex flex-col items-center justify-center gap-1" style={{ width: '58%' }}>
+        <svg viewBox="0 0 460 300" style={{ width: '100%', maxHeight: '70%' }} preserveAspectRatio="xMidYMid meet">
+          {renderFeatures(eastFeatures, eastPath)}
+        </svg>
+        <span className={`text-[9px] font-semibold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Sabah &amp; Sarawak</span>
       </div>
     </div>
   );
