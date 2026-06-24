@@ -452,11 +452,19 @@ export default function App() {
                 <div className="grid grid-cols-1 gap-2">
                   <div>
                     <span className={`text-[10px] block mb-0.5 transition-colors ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Mula:</span>
-                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={`w-full text-xs p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 transition outline-none ${isDarkMode ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`} />
+                    <div className="relative">
+                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                        className={`w-full text-xs p-2.5 pr-8 border rounded-lg focus:ring-2 focus:ring-cyan-500 transition outline-none clickable-date-input ${isDarkMode ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`} />
+                      <Calendar className={`w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
+                    </div>
                   </div>
                   <div>
                     <span className={`text-[10px] block mb-0.5 transition-colors ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Akhir:</span>
-                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={`w-full text-xs p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 transition outline-none ${isDarkMode ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`} />
+                    <div className="relative">
+                      <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+                        className={`w-full text-xs p-2.5 pr-8 border rounded-lg focus:ring-2 focus:ring-cyan-500 transition outline-none clickable-date-input ${isDarkMode ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`} />
+                      <Calendar className={`w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} />
+                    </div>
                   </div>
                 </div>
                 {/* Quick date range buttons */}

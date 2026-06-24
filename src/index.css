@@ -45,5 +45,6 @@ body {
   background: transparent;
   color: transparent;
   cursor: pointer;
+  opacity: 0;
   z-index: 10;
 }
