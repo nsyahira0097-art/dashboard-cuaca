@@ -776,15 +776,13 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     return isDarkMode ? '#1e3a5f' : '#bfdbfe';
   };
 
-  const updateTooltip = (e: React.MouseEvent) => {
+  const updateTooltip = (e: MouseEvent<SVGPathElement>) => {
     if (svgContainerRef.current) {
       const rect = svgContainerRef.current.getBoundingClientRect();
       setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
   };
 
-  // Peninsular: ~5.5° wide x 9.5° tall  → portrait, pad to 260×460
-  // East Malaysia: ~10° wide x 6.5° tall → landscape, pad to 460×300
   const PAD = 12;
   const peninsularProjection = useMemo(() =>
     geoMercator().fitExtent([[PAD,PAD],[260-PAD,460-PAD]], { type:'FeatureCollection', features: peninsularFeatures }),
@@ -795,8 +793,37 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
   const peninsularPath = useMemo(() => geoPath().projection(peninsularProjection), [peninsularProjection]);
   const eastPath       = useMemo(() => geoPath().projection(eastProjection),       [eastProjection]);
 
-  const renderStateFeatures = (features: any[], pathGen: any) =>
-    features.map((f: any) => {
+  // Compute dynamic viewBox for zoom when states are selected
+  const computeViewBox = (features: any[], pathGen: any, allStateFeatures: any[]) => {
+    if (selectedStates.length === 0) return null;
+    const selectedCodes = selectedStates.map((s: string) => STATE_CODE_MAP[s]).filter(Boolean);
+    const selectedFeatures = allStateFeatures.filter((f: any) => selectedCodes.includes(f.id));
+    if (selectedFeatures.length === 0) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    selectedFeatures.forEach((f: any) => {
+      const bounds = pathGen.bounds(f);
+      if (bounds) {
+        minX = Math.min(minX, bounds[0][0]);
+        minY = Math.min(minY, bounds[0][1]);
+        maxX = Math.max(maxX, bounds[1][0]);
+        maxY = Math.max(maxY, bounds[1][1]);
+      }
+    });
+    if (!isFinite(minX)) return null;
+    const pad = 14;
+    return `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`;
+  };
+
+  const peninsularViewBox = useMemo(() => computeViewBox(peninsularFeatures, peninsularPath, peninsularFeatures) || '0 0 260 460',
+    [selectedStates, peninsularPath]);
+  const eastViewBox = useMemo(() => computeViewBox(eastFeatures, eastPath, eastFeatures) || '0 0 460 300',
+    [selectedStates, eastPath]);
+
+  const renderStateFeatures = (features: any[], pathGen: any, viewBox: string) => {
+    // Parse current viewBox width to scale font size
+    const vbW = parseFloat(viewBox.split(' ')[2]) || 260;
+    const scaleFactor = vbW / 260;
+    return features.map((f: any) => {
       const stateCode = f.id || '';
       const stateName = STATE_NAME_MAP[stateCode] || '';
       const centroid = pathGen.centroid(f);
@@ -809,6 +836,7 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
       };
       const label = SHORT_LABEL[stateCode] || stateCode;
       const isSelected = selectedStates.includes(stateName);
+      const baseSize = stateCode === 'KUL' || stateCode === 'PJY' || stateCode === 'LBN' ? 4 : stateCode === 'MLK' || stateCode === 'PLS' ? 6 : 8;
       return (
         <g key={stateCode}>
           <path d={pathGen(f) as string} fill={getStateFill(stateCode)}
@@ -822,22 +850,24 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
               setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
             }}
           />
-          {/* Hide state label when district layer is shown */}
           {hasCentroid && !isSelected && (
             <text x={centroid[0]} y={centroid[1]} textAnchor="middle" dominantBaseline="middle"
-              fontSize={stateCode === 'KUL' || stateCode === 'PJY' || stateCode === 'LBN' ? 4 : stateCode === 'MLK' || stateCode === 'PLS' ? 6 : 8}
+              fontSize={baseSize * scaleFactor}
               fontWeight="600" fill={isDarkMode ? '#e2e8f0' : '#1e293b'}
-              stroke={isDarkMode ? '#0f172a' : '#ffffff'} strokeWidth={2} paintOrder="stroke"
-              pointerEvents="none" style={{ userSelect: 'none' }}>
+              stroke={isDarkMode ? '#0f172a' : '#ffffff'} strokeWidth={2 * scaleFactor} paintOrder="stroke"
+              pointerEvents="none" style={{ userSelect: 'none' as any }}>
               {label}
             </text>
           )}
         </g>
       );
     });
+  };
 
-  const renderDistrictFeatures = (features: any[], pathGen: any) =>
-    features.map((f: any) => {
+  const renderDistrictFeatures = (features: any[], pathGen: any, viewBox: string) => {
+    const vbW = parseFloat(viewBox.split(' ')[2]) || 260;
+    const scaleFactor = vbW / 260;
+    return features.map((f: any) => {
       const name = f.properties.name || '';
       const nameUpper = name.toUpperCase();
       const centroid = pathGen.centroid(f);
@@ -853,16 +883,17 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
           />
           {hasCentroid && (
             <text x={centroid[0]} y={centroid[1]} textAnchor="middle" dominantBaseline="middle"
-              fontSize={6} fontWeight="600"
-              fill={isDarkMode ? '#e2e8f0' : '#1e293b'}
-              stroke={isDarkMode ? '#0f172a' : '#ffffff'} strokeWidth={2} paintOrder="stroke"
-              pointerEvents="none" style={{ userSelect: 'none' }}>
+              fontSize={6 * scaleFactor}
+              fontWeight="600" fill={isDarkMode ? '#f1f5f9' : '#1e293b'}
+              stroke={isDarkMode ? '#0f172a' : '#ffffff'} strokeWidth={2 * scaleFactor} paintOrder="stroke"
+              pointerEvents="none" style={{ userSelect: 'none' as any }}>
               {name}
             </text>
           )}
         </g>
       );
     });
+  };
 
   // Build tooltip data — support state hover & district hover
   const hoveredStateName = hoveredState ? STATE_NAME_MAP[hoveredState] : null;
@@ -890,16 +921,16 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     <div ref={svgContainerRef} className="w-full h-full flex flex-row gap-2 p-2 items-stretch relative">
       {/* Semenanjung — portrait 260×460 viewBox */}
       <div className="flex items-center justify-center" style={{ width: '42%' }}>
-        <svg viewBox="0 0 260 460" style={{ width: '100%', height: '100%', maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
-          {renderStateFeatures(peninsularFeatures, peninsularPath)}
-          {renderDistrictFeatures(peninsularDistrictFeatures, peninsularPath)}
+        <svg viewBox={peninsularViewBox} style={{ width: '100%', height: '100%', maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
+          {renderStateFeatures(peninsularFeatures, peninsularPath, peninsularViewBox)}
+          {renderDistrictFeatures(peninsularDistrictFeatures, peninsularPath, peninsularViewBox)}
         </svg>
       </div>
       {/* Malaysia Timur — landscape 460×300 viewBox */}
       <div className="flex flex-col items-center justify-center gap-1" style={{ width: '58%' }}>
-        <svg viewBox="0 0 460 300" style={{ width: '100%', maxHeight: '70%' }} preserveAspectRatio="xMidYMid meet">
-          {renderStateFeatures(eastFeatures, eastPath)}
-          {renderDistrictFeatures(eastDistrictFeatures, eastPath)}
+        <svg viewBox={eastViewBox} style={{ width: '100%', maxHeight: '70%' }} preserveAspectRatio="xMidYMid meet">
+          {renderStateFeatures(eastFeatures, eastPath, eastViewBox)}
+          {renderDistrictFeatures(eastDistrictFeatures, eastPath, eastViewBox)}
         </svg>
         <span className={`text-[9px] font-semibold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Sabah &amp; Sarawak</span>
       </div>
