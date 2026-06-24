@@ -48,7 +48,7 @@ export default function App() {
 
   // Filter States
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-  const [selectedStates, setSelectedStates] = useState<string[]>(["JOHOR"]);
+  const [selectedStates, setSelectedStates] = useState<string[]>([]);
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
@@ -105,7 +105,7 @@ export default function App() {
       setEndDate(initialEnd);
 
       const result = await getWeatherData({
-        negeriList: ["JOHOR"], daerahList: [], startDate: initialStart, endDate: initialEnd, limit: 15000
+        negeriList: [], daerahList: [], startDate: initialStart, endDate: initialEnd, limit: 15000
       });
 
       setAllWeatherData(result.data);
@@ -256,13 +256,9 @@ export default function App() {
   };
 
   const toggleStateSelection = (stateName: string) => {
-    setSelectedStates(prev => {
-      if (prev.includes(stateName)) {
-        if (prev.length === 1) return prev; 
-        return prev.filter(s => s !== stateName);
-      }
-      return [...prev, stateName];
-    });
+    setSelectedStates(prev =>
+      prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]
+    );
   };
 
   const toggleDistrictSelection = (districtName: string) => {
@@ -819,10 +815,9 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
   const eastViewBox = useMemo(() => computeViewBox(eastFeatures, eastPath, eastFeatures) || '0 0 460 300',
     [selectedStates, eastPath]);
 
-  const renderStateFeatures = (features: any[], pathGen: any, viewBox: string) => {
-    // Parse current viewBox width to scale font size
-    const vbW = parseFloat(viewBox.split(' ')[2]) || 260;
-    const scaleFactor = vbW / 260;
+  const renderStateFeatures = (features: any[], pathGen: any, viewBox: string, baseViewBoxW = 260) => {
+    const vbW = parseFloat(viewBox.split(' ')[2]) || baseViewBoxW;
+    const scaleFactor = vbW / baseViewBoxW;
     return features.map((f: any) => {
       const stateCode = f.id || '';
       const stateName = STATE_NAME_MAP[stateCode] || '';
@@ -847,7 +842,9 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
             onMouseLeave={() => { setHoveredState(null); setTooltipPos(null); }}
             onClick={() => {
               if (!stateName) return;
-              setSelectedStates((prev: string[]) => prev.includes(stateName) ? prev.filter(s => s !== stateName) : [...prev, stateName]);
+              setSelectedStates((prev: string[]) =>
+                prev.includes(stateName) ? prev.filter((s: string) => s !== stateName) : [...prev, stateName]
+              );
             }}
           />
           {hasCentroid && !isSelected && (
@@ -864,9 +861,9 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
     });
   };
 
-  const renderDistrictFeatures = (features: any[], pathGen: any, viewBox: string) => {
-    const vbW = parseFloat(viewBox.split(' ')[2]) || 260;
-    const scaleFactor = vbW / 260;
+  const renderDistrictFeatures = (features: any[], pathGen: any, viewBox: string, baseViewBoxW = 260) => {
+    const vbW = parseFloat(viewBox.split(' ')[2]) || baseViewBoxW;
+    const scaleFactor = vbW / baseViewBoxW;
     return features.map((f: any) => {
       const name = f.properties.name || '';
       const nameUpper = name.toUpperCase();
@@ -922,17 +919,17 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
       {/* Semenanjung — portrait 260×460 viewBox */}
       <div className="flex items-center justify-center" style={{ width: '42%' }}>
         <svg viewBox={peninsularViewBox} style={{ width: '100%', height: '100%', maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
-          {renderStateFeatures(peninsularFeatures, peninsularPath, peninsularViewBox)}
-          {renderDistrictFeatures(peninsularDistrictFeatures, peninsularPath, peninsularViewBox)}
+          {renderStateFeatures(peninsularFeatures, peninsularPath, peninsularViewBox, 260)}
+          {renderDistrictFeatures(peninsularDistrictFeatures, peninsularPath, peninsularViewBox, 260)}
         </svg>
       </div>
       {/* Malaysia Timur — landscape 460×300 viewBox */}
       <div className="flex flex-col items-center justify-center gap-1" style={{ width: '58%' }}>
         <svg viewBox={eastViewBox} style={{ width: '100%', maxHeight: '70%' }} preserveAspectRatio="xMidYMid meet">
-          {renderStateFeatures(eastFeatures, eastPath, eastViewBox)}
-          {renderDistrictFeatures(eastDistrictFeatures, eastPath, eastViewBox)}
+          {renderStateFeatures(eastFeatures, eastPath, eastViewBox, 460)}
+          {renderDistrictFeatures(eastDistrictFeatures, eastPath, eastViewBox, 460)}
         </svg>
-        <span className={`text-[9px] font-semibold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Sabah &amp; Sarawak</span>
+        <span className={`text-[9px] font-semibold uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}></span>
       </div>
 
       {/* Hover Tooltip */}
@@ -950,7 +947,7 @@ function MalaysiaSVGMap({ isDarkMode, selectedStates, setSelectedStates, distric
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
             {[['Suhu Maks', hoveredTooltipData.suhu_maksimum, '°C', 'rose'],['Suhu Min', hoveredTooltipData.suhu_minimum, '°C', 'sky'],
               ['Kelembapan', hoveredTooltipData.kelembapan, '%', 'teal'],['Hujan', hoveredTooltipData.taburan_hujan, ' mm', 'blue'],
-              ['Kelajuan Angin', hoveredTooltipData.kelajuan_angin, ' m/s', 'purple'],['Humid Tanah', hoveredTooltipData.kelembapan_tanah_permukaan, '', 'emerald']
+              ['Kelajuan Angin', hoveredTooltipData.kelajuan_angin, ' m/s', 'purple']
             ].map(([label, val, unit, color]) => (
               <div key={label as string} className={`rounded-lg p-1.5 ${isDarkMode ? `bg-${color}-950/40` : `bg-${color}-50`}`}>
                 <div className={`text-[9px] uppercase font-bold ${isDarkMode ? `text-${color}-400` : `text-${color}-600`}`}>{label}</div>
